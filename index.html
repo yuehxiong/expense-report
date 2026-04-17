@@ -782,6 +782,12 @@ const CAT_TAG = {
   taxi:         'tag-taxi',
   other:        'tag-other'
 };
+const VALID_CATEGORIES = Object.keys(CAT_LABEL);
+const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
+const MAX_STORED_IMAGE_CHARS = 1200000;
+const MAX_IMAGE_DIMENSION = 1600;
+const IMAGE_QUALITY = 0.82;
+const MAX_IMAGES_PER_EXPENSE = 4;
 
 // ── State ──────────────────────────────────────────────────────────────────
 let currentYear  = new Date().getFullYear();
@@ -791,9 +797,69 @@ let pendingImages = [];
 // ── Storage ────────────────────────────────────────────────────────────────
 function monthKey() { return `expenses_${currentYear}_${currentMonth + 1}`; }
 function getExpenses() {
-  try { return JSON.parse(localStorage.getItem(monthKey()) || '[]'); } catch { return []; }
+  try {
+    const parsed = JSON.parse(localStorage.getItem(monthKey()) || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(normalizeExpense).filter(Boolean);
+  } catch {
+    return [];
+  }
 }
-function saveExpenses(arr) { localStorage.setItem(monthKey(), JSON.stringify(arr)); }
+function saveExpenses(arr) {
+  try {
+    localStorage.setItem(monthKey(), JSON.stringify(arr.map(normalizeExpense).filter(Boolean)));
+    return true;
+  } catch(e) {
+    console.warn(e);
+    showToast('儲存失敗：圖片太大或瀏覽器空間不足', 'warn');
+    return false;
+  }
+}
+function normalizeExpense(expense, index = 0) {
+  if (!expense || typeof expense !== 'object') return null;
+
+  const amount = Number(expense.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+
+  const date = typeof expense.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(expense.date)
+    ? expense.date
+    : null;
+  if (!date) return null;
+
+  const category = VALID_CATEGORIES.includes(expense.category) ? expense.category : 'other';
+  const note = String(expense.note || '').slice(0, 300);
+  const images = Array.isArray(expense.images)
+    ? expense.images.filter(isSafeImageSrc).slice(0, MAX_IMAGES_PER_EXPENSE)
+    : [];
+  const id = Number.isFinite(Number(expense.id)) ? Number(expense.id) : Date.now() + index;
+
+  return { id, date, category, amount, note, images };
+}
+function escapeHTML(value) {
+  return String(value).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch]));
+}
+function formatMoney(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount.toLocaleString() : '0';
+}
+function isDateInCurrentPeriod(date) {
+  const [y, m] = date.split('-').map(Number);
+  return y === currentYear && m === currentMonth + 1;
+}
+function isSafeImageSrc(src) {
+  return typeof src === 'string'
+    && src.length <= MAX_STORED_IMAGE_CHARS
+    && /^data:image\/(?:png|jpe?g|webp|gif|heic|heif);base64,[a-z0-9+/=]+$/i.test(src);
+}
+function isImageFile(file) {
+  return file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|heic|heif)$/i.test(file.name);
+}
 
 // ── Month navigation ───────────────────────────────────────────────────────
 function changeMonth(delta) {
@@ -825,22 +891,94 @@ function showPage(name, _btn) {
 }
 
 // ── File upload ────────────────────────────────────────────────────────────
-function handleFiles(files) {
-  Array.from(files).forEach(file => {
-    const reader = new FileReader();
-    reader.onload = e => { pendingImages.push(e.target.result); renderPendingImages(); };
-    reader.readAsDataURL(file);
-  });
+async function handleFiles(files) {
+  for (const file of Array.from(files)) {
+    if (pendingImages.length >= MAX_IMAGES_PER_EXPENSE) {
+      showToast(`每筆最多 ${MAX_IMAGES_PER_EXPENSE} 張憑證`, 'warn');
+      break;
+    }
+    if (!isImageFile(file)) {
+      showToast('只能上傳圖片檔', 'warn');
+      continue;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      showToast('圖片超過 12MB，請先壓縮後再上傳', 'warn');
+      continue;
+    }
+
+    try {
+      const src = await prepareReceiptImage(file);
+      if (!isSafeImageSrc(src)) {
+        showToast('圖片仍然太大，請先壓縮後再上傳', 'warn');
+        continue;
+      }
+      pendingImages.push(src);
+      renderPendingImages();
+    } catch {
+      showToast('圖片讀取失敗，請換一張試試', 'warn');
+    }
+  }
   document.getElementById('fileInput').value = '';
 }
 
+function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = () => reject(reader.error || new Error('File read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function prepareReceiptImage(file) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const original = await fileToDataURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const longest = Math.max(img.naturalWidth, img.naturalHeight);
+        if (!longest) return reject(new Error('Invalid image size'));
+
+        const scale = Math.min(1, MAX_IMAGE_DIMENSION / longest);
+        if (scale === 1 && original.length <= MAX_STORED_IMAGE_CHARS) {
+          resolve(original);
+          return;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', IMAGE_QUALITY));
+      };
+      img.onerror = () => reject(new Error('Image decode failed'));
+      img.src = original;
+    } catch(e) {
+      reject(e);
+    }
+  });
+}
+
 function renderPendingImages() {
-  document.getElementById('previewImgs').innerHTML = pendingImages.map((src, i) => `
-    <div class="img-thumb-wrap">
-      <img src="${src}" onclick="openLightbox('${src}')">
-      <button class="img-remove" onclick="removePending(${i})">✕</button>
-    </div>
-  `).join('');
+  const preview = document.getElementById('previewImgs');
+  preview.textContent = '';
+  pendingImages.forEach((src, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'img-thumb-wrap';
+
+    const img = document.createElement('img');
+    img.src = src;
+    img.addEventListener('click', () => openLightbox(src));
+
+    const btn = document.createElement('button');
+    btn.className = 'img-remove';
+    btn.type = 'button';
+    btn.textContent = '✕';
+    btn.addEventListener('click', () => removePending(i));
+
+    wrap.append(img, btn);
+    preview.appendChild(wrap);
+  });
 }
 
 function removePending(i) {
@@ -856,12 +994,13 @@ function addExpense() {
   const note     = document.getElementById('expNote').value.trim();
 
   if (!date)                              return showToast('⚠️ 請選擇日期', 'warn');
+  if (!isDateInCurrentPeriod(date))       return showToast('⚠️ 日期需在目前帳期內', 'warn');
   if (!amount || isNaN(amount) || amount <= 0) return showToast('⚠️ 請輸入有效金額', 'warn');
 
   const expenses = getExpenses();
   expenses.push({ id: Date.now(), date, category, amount, note, images: [...pendingImages] });
   expenses.sort((a, b) => a.date.localeCompare(b.date));
-  saveExpenses(expenses);
+  if (!saveExpenses(expenses)) return;
 
   clearForm();
   updateSidebar();
@@ -878,7 +1017,12 @@ function clearForm() {
 }
 
 function todayStr() {
-  return new Date().toISOString().split('T')[0];
+  const d = new Date();
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0')
+  ].join('-');
 }
 
 // ── List ───────────────────────────────────────────────────────────────────
@@ -894,35 +1038,69 @@ function renderList() {
   const total = expenses.reduce((s, e) => s + e.amount, 0);
 
   badge.textContent = `${expenses.length} 筆`;
-  info.textContent  = `共 ${expenses.length} 筆，合計 NT$${total.toLocaleString()}`;
+  info.textContent  = `共 ${expenses.length} 筆，合計 NT$${formatMoney(total)}`;
 
   if (!expenses.length) {
-    body.innerHTML = '';
+    body.textContent = '';
     empty.style.display = 'block';
     return;
   }
   empty.style.display = 'none';
-  body.innerHTML = expenses.map(e => `
-    <tr>
-      <td style="white-space:nowrap; color:var(--text-muted); font-size:13px;">${e.date}</td>
-      <td><span class="tag ${CAT_TAG[e.category]}">${CAT_LABEL[e.category]}</span></td>
-      <td style="color:var(--text-muted); font-size:13px;">${e.note || '—'}</td>
-      <td class="amount-cell">NT$${e.amount.toLocaleString()}</td>
-      <td>
-        ${e.images && e.images.length
-          ? e.images.map(s => `<img src="${s}" style="width:34px;height:34px;object-fit:cover;border-radius:5px;border:1.5px solid var(--border);cursor:pointer;margin-right:3px;vertical-align:middle;" onclick="openLightbox('${s}')">`).join('')
-          : '<span style="color:var(--text-faint);font-size:12px;">無</span>'}
-      </td>
-      <td>
-        <button class="btn btn-ghost btn-sm" style="color:var(--danger); border-color:var(--danger-dim);" onclick="deleteExpense(${e.id})">刪除</button>
-      </td>
-    </tr>
-  `).join('');
+  body.textContent = '';
+  expenses.forEach(e => {
+    const row = document.createElement('tr');
+
+    const dateCell = document.createElement('td');
+    dateCell.style.cssText = 'white-space:nowrap; color:var(--text-muted); font-size:13px;';
+    dateCell.textContent = e.date;
+
+    const categoryCell = document.createElement('td');
+    const tag = document.createElement('span');
+    tag.className = `tag ${CAT_TAG[e.category]}`;
+    tag.textContent = CAT_LABEL[e.category];
+    categoryCell.appendChild(tag);
+
+    const noteCell = document.createElement('td');
+    noteCell.style.cssText = 'color:var(--text-muted); font-size:13px;';
+    noteCell.textContent = e.note || '—';
+
+    const amountCell = document.createElement('td');
+    amountCell.className = 'amount-cell';
+    amountCell.textContent = `NT$${formatMoney(e.amount)}`;
+
+    const imageCell = document.createElement('td');
+    if (e.images && e.images.length) {
+      e.images.forEach(src => {
+        const img = document.createElement('img');
+        img.src = src;
+        img.style.cssText = 'width:34px;height:34px;object-fit:cover;border-radius:5px;border:1.5px solid var(--border);cursor:pointer;margin-right:3px;vertical-align:middle;';
+        img.addEventListener('click', () => openLightbox(src));
+        imageCell.appendChild(img);
+      });
+    } else {
+      const emptyImg = document.createElement('span');
+      emptyImg.style.cssText = 'color:var(--text-faint);font-size:12px;';
+      emptyImg.textContent = '無';
+      imageCell.appendChild(emptyImg);
+    }
+
+    const actionCell = document.createElement('td');
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn btn-ghost btn-sm';
+    deleteBtn.type = 'button';
+    deleteBtn.style.cssText = 'color:var(--danger); border-color:var(--danger-dim);';
+    deleteBtn.textContent = '刪除';
+    deleteBtn.addEventListener('click', () => deleteExpense(e.id));
+    actionCell.appendChild(deleteBtn);
+
+    row.append(dateCell, categoryCell, noteCell, amountCell, imageCell, actionCell);
+    body.appendChild(row);
+  });
 }
 
 function deleteExpense(id) {
   if (!confirm('確定刪除此筆費用？')) return;
-  saveExpenses(getExpenses().filter(e => e.id !== id));
+  if (!saveExpenses(getExpenses().filter(e => e.id !== id))) return;
   renderList();
   updateSidebar();
   showToast('已刪除');
@@ -930,7 +1108,7 @@ function deleteExpense(id) {
 
 function clearAll() {
   if (!confirm('確定清除本月所有費用資料？此操作無法復原！')) return;
-  saveExpenses([]);
+  localStorage.removeItem(monthKey());
   renderList();
   updateSidebar();
   showToast('已清除本月資料');
@@ -948,12 +1126,12 @@ function renderReport() {
   document.getElementById('statsRow').innerHTML = `
     <div class="stat-card c-accent">
       <div class="sc-label">本月總金額</div>
-      <div class="sc-val">NT$${total.toLocaleString()}</div>
+      <div class="sc-val">NT$${formatMoney(total)}</div>
       <div class="sc-sub">${expenses.length} 筆費用</div>
     </div>
     <div class="stat-card c-warn">
       <div class="sc-label">最高單筆</div>
-      <div class="sc-val">NT$${max.toLocaleString()}</div>
+      <div class="sc-val">NT$${formatMoney(max)}</div>
       <div class="sc-sub">單次最高消費</div>
     </div>
     <div class="stat-card c-blue">
@@ -969,7 +1147,7 @@ function renderReport() {
     <div class="cat-row">
       <div class="cat-header">
         <span class="tag ${CAT_TAG[k]}">${CAT_LABEL[k]}</span>
-        <span class="cat-pct">NT$${v.toLocaleString()} &nbsp;·&nbsp; ${total ? ((v/total)*100).toFixed(1) : 0}%</span>
+        <span class="cat-pct">NT$${formatMoney(v)} &nbsp;·&nbsp; ${total ? ((v/total)*100).toFixed(1) : 0}%</span>
       </div>
       <div class="bar-bg"><div class="bar-fill" style="width:${total?(v/total)*100:0}%"></div></div>
     </div>
@@ -981,7 +1159,7 @@ function renderReport() {
   const trendHTML = Object.entries(daily).sort().map(([d,v]) => `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #f1f5f9;">
       <span style="color:var(--text-muted);font-size:13px">${d}</span>
-      <span style="font-weight:600;font-size:13px">NT$${v.toLocaleString()}</span>
+      <span style="font-weight:600;font-size:13px">NT$${formatMoney(v)}</span>
     </div>
   `).join('') || '<div style="color:var(--text-faint);font-size:13px">尚無資料</div>';
   document.getElementById('dailyTrend').innerHTML = trendHTML;
@@ -997,10 +1175,10 @@ function renderPrintPreview() {
   const rows = expenses.map((e, i) => `
     <tr style="border-bottom:1px solid #e8ecf0;">
       <td style="padding:8px 10px;text-align:center;color:#888;font-size:12px;">${i+1}</td>
-      <td style="padding:8px 10px;white-space:nowrap;font-size:12px;">${e.date}</td>
+      <td style="padding:8px 10px;white-space:nowrap;font-size:12px;">${escapeHTML(e.date)}</td>
       <td style="padding:8px 10px;text-align:center;font-size:12px;">${CAT_LABEL[e.category]}</td>
-      <td style="padding:8px 10px;font-size:12px;color:#555;">${e.note || ''}</td>
-      <td style="padding:8px 10px;text-align:right;font-weight:700;font-size:12px;">NT$${e.amount.toLocaleString()}</td>
+      <td style="padding:8px 10px;font-size:12px;color:#555;">${escapeHTML(e.note || '')}</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:700;font-size:12px;">NT$${formatMoney(e.amount)}</td>
     </tr>
   `).join('');
 
@@ -1021,7 +1199,7 @@ function renderPrintPreview() {
     <tr style="border-bottom:1px solid #f0f0f0;">
       <td style="padding:7px 10px;font-size:12px;">${CAT_LABEL[k]}</td>
       <td style="padding:7px 10px;text-align:right;font-size:12px;color:#888;">${catCounts[k]} 筆</td>
-      <td style="padding:7px 10px;text-align:right;font-size:12px;font-weight:700;">NT$${v.toLocaleString()}</td>
+      <td style="padding:7px 10px;text-align:right;font-size:12px;font-weight:700;">NT$${formatMoney(v)}</td>
       <td style="padding:7px 10px;text-align:right;font-size:12px;color:#888;">${total ? ((v/total)*100).toFixed(1) : 0}%</td>
     </tr>
   `).join('');
@@ -1048,8 +1226,8 @@ function renderPrintPreview() {
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
         ${allImages.map(img => `
           <div style="border:1px solid #ddd;border-radius:6px;overflow:hidden;">
-            <img src="${img.src}" style="width:100%;display:block;max-height:200px;object-fit:contain;background:#fafafa;">
-            <div style="padding:5px 8px;font-size:10px;color:#777;border-top:1px solid #eee;">${img.label}</div>
+            <img src="${escapeHTML(img.src)}" style="width:100%;display:block;max-height:200px;object-fit:contain;background:#fafafa;">
+            <div style="padding:5px 8px;font-size:10px;color:#777;border-top:1px solid #eee;">${escapeHTML(img.label)}</div>
           </div>
         `).join('')}
       </div>
@@ -1060,12 +1238,12 @@ function renderPrintPreview() {
     <div style="background:#fff;padding:36px 40px;font-family:'Noto Sans TC',sans-serif;font-size:13px;max-width:860px;margin:0 auto;border:1px solid #dde0e8;border-radius:10px;">
 
       <div style="text-align:center;padding-bottom:18px;border-bottom:2px solid #1e1b4b;margin-bottom:22px;">
-        <div style="font-size:20px;font-weight:700;color:#1e1b4b;letter-spacing:.5px;">${period}｜費用報帳申請表</div>
+        <div style="font-size:20px;font-weight:700;color:#1e1b4b;letter-spacing:.5px;">${escapeHTML(period)}｜費用報帳申請表</div>
       </div>
 
       <div style="display:flex;justify-content:space-between;margin-bottom:22px;font-size:13px;">
         <div>申請人：<strong>${APPLICANT}</strong></div>
-        <div style="color:#666;">申請日期：${todayStr()}</div>
+        <div style="color:#666;">申請日期：${escapeHTML(todayStr())}</div>
       </div>
 
       <table style="width:100%;border-collapse:collapse;">
@@ -1082,7 +1260,7 @@ function renderPrintPreview() {
           ${rows || '<tr><td colspan="5" style="text-align:center;padding:24px;color:#aaa;font-size:13px;">本月尚無費用紀錄</td></tr>'}
           <tr style="background:#f4f6fb;font-weight:700;border-top:2px solid #1e1b4b;">
             <td colspan="4" style="padding:10px;text-align:right;font-size:13px;">合計</td>
-            <td style="padding:10px;text-align:right;font-size:16px;color:#1e1b4b;">NT$${total.toLocaleString()}</td>
+            <td style="padding:10px;text-align:right;font-size:16px;color:#1e1b4b;">NT$${formatMoney(total)}</td>
           </tr>
         </tbody>
       </table>
@@ -1151,7 +1329,7 @@ async function exportPDF() {
 function updateSidebar() {
   const expenses = getExpenses();
   const total    = expenses.reduce((s, e) => s + e.amount, 0);
-  const totalStr = `NT$${total.toLocaleString()}`;
+  const totalStr = `NT$${formatMoney(total)}`;
   document.getElementById('sidebarTotal').textContent = totalStr;
   document.getElementById('sidebarCount').textContent = `${expenses.length} 筆費用`;
   document.getElementById('mobileTotal').textContent  = totalStr;
@@ -1159,6 +1337,7 @@ function updateSidebar() {
 
 // ── Lightbox ───────────────────────────────────────────────────────────────
 function openLightbox(src) {
+  if (!isSafeImageSrc(src)) return;
   document.getElementById('lightboxImg').src = src;
   document.getElementById('lightbox').classList.add('open');
 }
