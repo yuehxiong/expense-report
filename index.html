@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>葶の報帳工具🐧</title>
+<title>報帳小幫手✨</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -551,7 +551,7 @@ textarea { resize: vertical; min-height: 70px; }
 
 <!-- ── Mobile top header ──────────────────────── -->
 <div class="mobile-header">
-  <span class="mh-brand">葶の報帳工具🐧</span>
+  <span class="mh-brand">報帳小幫手✨</span>
   <div class="mh-month">
     <button class="mh-month-btn" onclick="changeMonth(-1)">◀</button>
     <span class="mh-month-label" id="monthLabelMobile">2026 年 4 月</span>
@@ -565,7 +565,7 @@ textarea { resize: vertical; min-height: 70px; }
   <!-- ── Sidebar ─────────────────────────────── -->
   <nav class="sidebar">
     <div class="brand">
-      <div class="brand-name">葶の報帳工具🐧</div>
+      <div class="brand-name">報帳小幫手✨</div>
     </div>
 
     <div class="month-widget">
@@ -611,8 +611,13 @@ textarea { resize: vertical; min-height: 70px; }
         <div class="card-title">費用資訊</div>
         <div class="form-grid">
           <div>
+            <label>申請人</label>
+            <input type="text" id="expApplicant" placeholder="姓名">
+          </div>
+          <div>
             <label>日期</label>
-            <input type="date" id="expDate">
+            <input type="date" id="expDate" onchange="updateDateDisplay()">
+            <div id="dateDisplay" style="font-size:12px;color:var(--text-muted);margin-top:5px;min-height:18px;"></div>
           </div>
           <div>
             <label>項目</label>
@@ -627,7 +632,7 @@ textarea { resize: vertical; min-height: 70px; }
             <label>金額（NT$）</label>
             <input type="number" id="expAmount" min="0" placeholder="0">
           </div>
-          <div>
+          <div class="full">
             <label>備註</label>
             <input type="text" id="expNote" placeholder="選填，補充說明">
           </div>
@@ -828,12 +833,13 @@ function normalizeExpense(expense, index = 0) {
 
   const category = VALID_CATEGORIES.includes(expense.category) ? expense.category : 'other';
   const note = String(expense.note || '').slice(0, 300);
+  const applicant = String(expense.applicant || '').slice(0, 80);
   const images = Array.isArray(expense.images)
     ? expense.images.filter(isSafeImageSrc).slice(0, MAX_IMAGES_PER_EXPENSE)
     : [];
   const id = Number.isFinite(Number(expense.id)) ? Number(expense.id) : Date.now() + index;
 
-  return { id, date, category, amount, note, images };
+  return { id, date, category, amount, note, applicant, images };
 }
 function escapeHTML(value) {
   return String(value).replace(/[&<>"']/g, ch => ({
@@ -847,6 +853,12 @@ function escapeHTML(value) {
 function formatMoney(value) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount.toLocaleString() : '0';
+}
+function cleanShortText(value, maxLength) {
+  return String(value || '').trim().slice(0, maxLength);
+}
+function filenameSafeText(value) {
+  return cleanShortText(value, 80).replace(/[\\/:*?"<>|]/g, '_') || APPLICANT;
 }
 function isDateInCurrentPeriod(date) {
   const [y, m] = date.split('-').map(Number);
@@ -988,17 +1000,26 @@ function removePending(i) {
 
 // ── Add expense ────────────────────────────────────────────────────────────
 function addExpense() {
-  const date     = document.getElementById('expDate').value;
-  const category = document.getElementById('expCategory').value;
-  const amount   = parseFloat(document.getElementById('expAmount').value);
-  const note     = document.getElementById('expNote').value.trim();
+  const applicant = cleanShortText(document.getElementById('expApplicant').value, 80);
+  let   date      = document.getElementById('expDate').value;
+  const category  = document.getElementById('expCategory').value;
+  const amount    = parseFloat(document.getElementById('expAmount').value);
+  const note      = document.getElementById('expNote').value.trim();
 
-  if (!date)                              return showToast('⚠️ 請選擇日期', 'warn');
-  if (!isDateInCurrentPeriod(date))       return showToast('⚠️ 日期需在目前帳期內', 'warn');
-  if (!amount || isNaN(amount) || amount <= 0) return showToast('⚠️ 請輸入有效金額', 'warn');
+  // 日期若為空自動填今天（手機拍照後偶爾會清掉）
+  if (!date) {
+    date = todayStr();
+    document.getElementById('expDate').value = date;
+    updateDateDisplay();
+  }
+  if (!isDateInCurrentPeriod(date))       return showToast('日期需在目前帳期內', 'warn');
+  if (!amount || isNaN(amount) || amount <= 0) return showToast('請輸入有效金額', 'warn');
+
+  // 儲存申請人名稱供下次使用
+  try { localStorage.setItem('expense_applicant', applicant); } catch {}
 
   const expenses = getExpenses();
-  expenses.push({ id: Date.now(), date, category, amount, note, images: [...pendingImages] });
+  expenses.push({ id: Date.now(), date, category, amount, note, applicant, images: [...pendingImages] });
   expenses.sort((a, b) => a.date.localeCompare(b.date));
   if (!saveExpenses(expenses)) return;
 
@@ -1008,12 +1029,22 @@ function addExpense() {
 }
 
 function clearForm() {
+  // 申請人保留不清除
   document.getElementById('expDate').value     = todayStr();
   document.getElementById('expCategory').value = 'train_high';
   document.getElementById('expAmount').value   = '';
   document.getElementById('expNote').value     = '';
   pendingImages = [];
   renderPendingImages();
+  updateDateDisplay();
+}
+
+function updateDateDisplay() {
+  const v  = document.getElementById('expDate').value;
+  const el = document.getElementById('dateDisplay');
+  if (!v) { el.textContent = ''; return; }
+  const [y, m, d] = v.split('-').map(Number);
+  el.textContent = `${y} 年 ${m} 月 ${d} 日`;
 }
 
 function todayStr() {
@@ -1129,11 +1160,6 @@ function renderReport() {
       <div class="sc-val">NT$${formatMoney(total)}</div>
       <div class="sc-sub">${expenses.length} 筆費用</div>
     </div>
-    <div class="stat-card c-warn">
-      <div class="sc-label">最高單筆</div>
-      <div class="sc-val">NT$${formatMoney(max)}</div>
-      <div class="sc-sub">單次最高消費</div>
-    </div>
     <div class="stat-card c-blue">
       <div class="sc-label">已上傳憑證</div>
       <div class="sc-val">${imgs}</div>
@@ -1171,6 +1197,7 @@ function renderPrintPreview() {
   const includeImgs   = document.getElementById('cfIncludeReceipts').checked;
   const total         = expenses.reduce((s, e) => s + e.amount, 0);
   const period        = `${currentYear} 年 ${MONTHS_ZH[currentMonth]}`;
+  const applicant     = cleanShortText(document.getElementById('expApplicant').value, 80) || APPLICANT;
 
   const rows = expenses.map((e, i) => `
     <tr style="border-bottom:1px solid #e8ecf0;">
@@ -1242,7 +1269,7 @@ function renderPrintPreview() {
       </div>
 
       <div style="display:flex;justify-content:space-between;margin-bottom:22px;font-size:13px;">
-        <div>申請人：<strong>${APPLICANT}</strong></div>
+        <div>申請人：<strong>${escapeHTML(applicant)}</strong></div>
         <div style="color:#666;">申請日期：${escapeHTML(todayStr())}</div>
       </div>
 
@@ -1313,9 +1340,26 @@ async function exportPDF() {
       page++;
     }
 
-    const mm = ['01','02','03','04','05','06','07','08','09','10','11','12'];
-    pdf.save(`${currentYear}${mm[currentMonth]}_費用報帳_蔡曉葶.pdf`);
-    showToast('PDF 已下載');
+    const mm       = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+    const filename = `${currentYear}${mm[currentMonth]}_費用報帳_${filenameSafeText(document.getElementById('expApplicant').value)}.pdf`;
+    const isIOS    = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    if (isIOS) {
+      // iOS Safari：用 blob URL 開新分頁，出現原生 PDF 預覽＋分享按鈕
+      const blob   = pdf.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      const w = window.open(blobUrl, '_blank');
+      if (!w) {
+        // 被 popup 攔截時改為 data URI 開啟
+        const dataUri = pdf.output('datauristring');
+        window.location.href = dataUri;
+      }
+      showToast('請點右上角分享按鈕儲存 PDF');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+    } else {
+      pdf.save(filename);
+      showToast('PDF 已下載');
+    }
   } catch(e) {
     showToast('產生 PDF 失敗', 'warn');
     console.error(e);
@@ -1384,8 +1428,13 @@ function renderAll() {
 // ── Init ───────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('expDate').value = todayStr();
+  updateDateDisplay();
   updateMonthUI();
   updateSidebar();
+
+  // 還原上次儲存的申請人
+  const saved = localStorage.getItem('expense_applicant');
+  if (saved) document.getElementById('expApplicant').value = cleanShortText(saved, 80);
 
   const area = document.getElementById('uploadArea');
   area.addEventListener('dragover', e => { e.preventDefault(); area.style.borderColor='var(--primary-light)'; area.style.background='#f5f3ff'; });
