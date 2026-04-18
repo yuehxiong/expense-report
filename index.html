@@ -352,6 +352,7 @@ textarea { resize: vertical; min-height: 70px; }
 .tag-train-high  { background: #ffedd5; color: #c2410c; }
 .tag-train-taiwan{ background: #dbeafe; color: #1d4ed8; }
 .tag-taxi        { background: #fef9c3; color: #92400e; }
+.tag-rent        { background: #fce7f3; color: #9d174d; }
 .tag-other       { background: #f1f5f9; color: #475569; }
 
 /* ── Expense table ───────────────────────────── */
@@ -384,28 +385,18 @@ textarea { resize: vertical; min-height: 70px; }
 .empty-sub { font-size: 12px; margin-top: 4px; }
 
 /* ── Stats ───────────────────────────────────── */
-.stats-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 14px;
-  margin-bottom: 18px;
-}
-.stat-card {
-  background: var(--card);
+.stats-row { margin-bottom: 18px; }
+.stat-hero {
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
   border-radius: var(--radius);
-  padding: 18px 20px;
+  padding: 22px 26px;
   box-shadow: var(--shadow-sm);
-  border: 1px solid rgba(226,232,240,.7);
-  border-top: 3px solid var(--border);
+  border: 1px solid #a7f3d0;
 }
-.stat-card.c-accent  { border-top-color: var(--accent); }
-.stat-card.c-purple  { border-top-color: var(--primary-light); }
-.stat-card.c-warn    { border-top-color: var(--warn); }
-.stat-card.c-blue    { border-top-color: #3b82f6; }
-.stat-card .sc-label { font-size: 11px; color: var(--text-faint); font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
-.stat-card .sc-val   { font-size: 26px; font-weight: 700; color: var(--primary); margin: 4px 0 2px; line-height: 1; }
-.stat-card.c-accent .sc-val { color: var(--accent); }
-.stat-card .sc-sub   { font-size: 11.5px; color: var(--text-faint); }
+.stat-hero .sh-label { font-size: 11px; color: #065f46; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; margin-bottom: 6px; }
+.stat-hero .sh-val   { font-size: 38px; font-weight: 700; color: #065f46; line-height: 1; margin-bottom: 10px; }
+.stat-hero .sh-meta  { font-size: 13px; color: #047857; }
+.stat-hero .sh-dot   { margin: 0 8px; opacity: .4; }
 
 /* ── Cat breakdown ───────────────────────────── */
 .cat-row { margin-bottom: 14px; }
@@ -538,9 +529,8 @@ textarea { resize: vertical; min-height: 70px; }
 
   .expense-table { font-size: 12px; }
   .expense-table th, .expense-table td { padding: 9px 8px; }
-  .stat-card { padding: 14px 16px; }
-  .stat-card .sc-val { font-size: 20px; }
-  .stats-row { gap: 10px; }
+  .stat-hero { padding: 18px 20px; }
+  .stat-hero .sh-val { font-size: 30px; }
 
   .print-actions { gap: 8px; }
   .btn { padding: 10px 16px; font-size: 13px; }
@@ -616,8 +606,7 @@ textarea { resize: vertical; min-height: 70px; }
           </div>
           <div>
             <label>日期</label>
-            <input type="date" id="expDate" onchange="updateDateDisplay()">
-            <div id="dateDisplay" style="font-size:12px;color:var(--text-muted);margin-top:5px;min-height:18px;"></div>
+            <input type="date" id="expDate">
           </div>
           <div>
             <label>項目</label>
@@ -625,6 +614,7 @@ textarea { resize: vertical; min-height: 70px; }
               <option value="train_high">高鐵</option>
               <option value="train_taiwan">臺鐵</option>
               <option value="taxi">計程車</option>
+              <option value="rent">房租</option>
               <option value="other">其他</option>
             </select>
           </div>
@@ -671,6 +661,7 @@ textarea { resize: vertical; min-height: 70px; }
               <option value="train_high">高鐵</option>
               <option value="train_taiwan">臺鐵</option>
               <option value="taxi">計程車</option>
+              <option value="rent">房租</option>
               <option value="other">其他</option>
             </select>
             <button class="btn btn-danger" style="padding:6px 14px; font-size:12px;" onclick="clearAll()">清除本月資料</button>
@@ -726,7 +717,7 @@ textarea { resize: vertical; min-height: 70px; }
       <div class="export-info">
         <div>
           <div class="ei-label">申請人</div>
-          <div class="ei-name">蔡曉葶</div>
+          <div class="ei-name" id="exportApplicantName">蔡曉葶</div>
         </div>
       </div>
 
@@ -779,12 +770,14 @@ const CAT_LABEL = {
   train_high:   '高鐵',
   train_taiwan: '臺鐵',
   taxi:         '計程車',
+  rent:         '房租',
   other:        '其他'
 };
 const CAT_TAG = {
   train_high:   'tag-train-high',
   train_taiwan: 'tag-train-taiwan',
   taxi:         'tag-taxi',
+  rent:         'tag-rent',
   other:        'tag-other'
 };
 const VALID_CATEGORIES = Object.keys(CAT_LABEL);
@@ -898,7 +891,11 @@ function showPage(name, _btn) {
   document.querySelectorAll(`[data-page="${name}"]`).forEach(b => b.classList.add('active'));
   if (name === 'list')   renderList();
   if (name === 'report') renderReport();
-  if (name === 'export') renderPrintPreview();
+  if (name === 'export') {
+    const name_ = document.getElementById('expApplicant')?.value.trim() || APPLICANT;
+    document.getElementById('exportApplicantName').textContent = name_;
+    renderPrintPreview();
+  }
   window.scrollTo(0, 0);
 }
 
@@ -1010,7 +1007,6 @@ function addExpense() {
   if (!date) {
     date = todayStr();
     document.getElementById('expDate').value = date;
-    updateDateDisplay();
   }
   if (!isDateInCurrentPeriod(date))       return showToast('日期需在目前帳期內', 'warn');
   if (!amount || isNaN(amount) || amount <= 0) return showToast('請輸入有效金額', 'warn');
@@ -1036,15 +1032,6 @@ function clearForm() {
   document.getElementById('expNote').value     = '';
   pendingImages = [];
   renderPendingImages();
-  updateDateDisplay();
-}
-
-function updateDateDisplay() {
-  const v  = document.getElementById('expDate').value;
-  const el = document.getElementById('dateDisplay');
-  if (!v) { el.textContent = ''; return; }
-  const [y, m, d] = v.split('-').map(Number);
-  el.textContent = `${y} 年 ${m} 月 ${d} 日`;
 }
 
 function todayStr() {
@@ -1155,15 +1142,14 @@ function renderReport() {
   const imgs     = expenses.reduce((s, e) => s + (e.images||[]).length, 0);
 
   document.getElementById('statsRow').innerHTML = `
-    <div class="stat-card c-accent">
-      <div class="sc-label">本月總金額</div>
-      <div class="sc-val">NT$${formatMoney(total)}</div>
-      <div class="sc-sub">${expenses.length} 筆費用</div>
-    </div>
-    <div class="stat-card c-blue">
-      <div class="sc-label">已上傳憑證</div>
-      <div class="sc-val">${imgs}</div>
-      <div class="sc-sub">張圖片</div>
+    <div class="stat-hero">
+      <div class="sh-label">本月總金額</div>
+      <div class="sh-val">NT$${formatMoney(total)}</div>
+      <div class="sh-meta">
+        已新增費用 ${expenses.length} 筆
+        <span class="sh-dot">·</span>
+        已上傳憑證 ${imgs} 張圖片
+      </div>
     </div>
   `;
 
@@ -1198,6 +1184,8 @@ function renderPrintPreview() {
   const total         = expenses.reduce((s, e) => s + e.amount, 0);
   const period        = `${currentYear} 年 ${MONTHS_ZH[currentMonth]}`;
   const applicant     = cleanShortText(document.getElementById('expApplicant').value, 80) || APPLICANT;
+  const nameEl = document.getElementById('exportApplicantName');
+  if (nameEl) nameEl.textContent = applicant;
 
   const rows = expenses.map((e, i) => `
     <tr style="border-bottom:1px solid #e8ecf0;">
@@ -1300,10 +1288,19 @@ function renderPrintPreview() {
 
 async function exportPDF() {
   renderPrintPreview();
+
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  // 在使用者手勢還有效時同步開視窗，避免 iOS popup blocker 攔截
+  let iosWin = null;
+  if (isIOS) {
+    iosWin = window.open('', '_blank');
+    if (iosWin) iosWin.document.write('<body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f8fafc"><p style="color:#555;font-size:15px">正在產生 PDF，請稍候…</p></body>');
+  }
+
   await new Promise(r => setTimeout(r, 350));
 
   const source = document.querySelector('#printArea > div');
-  if (!source) { showToast('請先確認有費用資料', 'warn'); return; }
+  if (!source) { showToast('請先確認有費用資料', 'warn'); if (iosWin) iosWin.close(); return; }
 
   const btn = document.getElementById('exportBtn');
   btn.disabled = true;
@@ -1342,20 +1339,18 @@ async function exportPDF() {
 
     const mm       = ['01','02','03','04','05','06','07','08','09','10','11','12'];
     const filename = `${currentYear}${mm[currentMonth]}_費用報帳_${filenameSafeText(document.getElementById('expApplicant').value)}.pdf`;
-    const isIOS    = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
     if (isIOS) {
-      // iOS Safari：用 blob URL 開新分頁，出現原生 PDF 預覽＋分享按鈕
-      const blob   = pdf.output('blob');
+      // iOS Safari：用預先開好的視窗顯示 blob PDF，讓使用者點分享按鈕儲存
+      const blob    = pdf.output('blob');
       const blobUrl = URL.createObjectURL(blob);
-      const w = window.open(blobUrl, '_blank');
-      if (!w) {
-        // 被 popup 攔截時改為 data URI 開啟
-        const dataUri = pdf.output('datauristring');
-        window.location.href = dataUri;
+      if (iosWin) {
+        iosWin.location.href = blobUrl;
+      } else {
+        window.location.href = pdf.output('datauristring');
       }
-      showToast('請點右上角分享按鈕儲存 PDF');
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+      showToast('PDF 已開啟，請點分享按鈕儲存');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
     } else {
       pdf.save(filename);
       showToast('PDF 已下載');
@@ -1428,7 +1423,6 @@ function renderAll() {
 // ── Init ───────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('expDate').value = todayStr();
-  updateDateDisplay();
   updateMonthUI();
   updateSidebar();
 
