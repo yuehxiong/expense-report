@@ -410,6 +410,7 @@ textarea { resize: vertical; min-height: 70px; }
 .bar-fill { background: linear-gradient(90deg, var(--accent), #34d399); height: 100%; border-radius: 99px; transition: width .5s cubic-bezier(.4,0,.2,1); }
 
 /* ── Print / Export ──────────────────────────── */
+#printArea { overflow-x: auto; }
 .export-info {
   display: flex;
   align-items: center;
@@ -1119,8 +1120,8 @@ function renderList() {
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'btn btn-ghost btn-sm';
     deleteBtn.type = 'button';
-    deleteBtn.style.cssText = 'color:var(--danger); border-color:var(--danger-dim);';
-    deleteBtn.textContent = '刪除';
+    deleteBtn.style.cssText = 'color:var(--danger); border-color:var(--danger-dim); padding:4px 9px; font-size:13px; line-height:1;';
+    deleteBtn.textContent = '✕';
     deleteBtn.addEventListener('click', () => deleteExpense(e.id));
     actionCell.appendChild(deleteBtn);
 
@@ -1202,11 +1203,11 @@ function renderPrintPreview() {
 
   const rows = expenses.map((e, i) => `
     <tr style="border-bottom:1px solid #e8ecf0;">
-      <td style="padding:8px 10px;text-align:center;color:#888;font-size:12px;">${i+1}</td>
-      <td style="padding:8px 10px;white-space:nowrap;font-size:12px;">${escapeHTML(e.date)}</td>
-      <td style="padding:8px 10px;text-align:center;font-size:12px;">${CAT_LABEL[e.category]}</td>
-      <td style="padding:8px 10px;font-size:12px;color:#555;">${escapeHTML(e.note || '')}</td>
-      <td style="padding:8px 10px;text-align:right;font-weight:700;font-size:12px;">NT$${formatMoney(e.amount)}</td>
+      <td style="padding:6px 8px;text-align:center;color:#888;font-size:10px;">${i+1}</td>
+      <td style="padding:6px 8px;white-space:nowrap;font-size:10px;">${escapeHTML(e.date)}</td>
+      <td style="padding:6px 8px;text-align:center;font-size:10px;">${CAT_LABEL[e.category]}</td>
+      <td style="padding:6px 8px;font-size:10px;color:#555;">${escapeHTML(e.note || '')}</td>
+      <td style="padding:6px 8px;text-align:right;font-weight:700;font-size:10px;">NT$${formatMoney(e.amount)}</td>
     </tr>
   `).join('');
 
@@ -1225,22 +1226,22 @@ function renderPrintPreview() {
   });
   const summaryRows = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).map(([k,v]) => `
     <tr style="border-bottom:1px solid #f0f0f0;">
-      <td style="padding:7px 10px;font-size:12px;">${CAT_LABEL[k]}</td>
-      <td style="padding:7px 10px;text-align:right;font-size:12px;color:#888;">${catCounts[k]} 筆</td>
-      <td style="padding:7px 10px;text-align:right;font-size:12px;font-weight:700;">NT$${formatMoney(v)}</td>
-      <td style="padding:7px 10px;text-align:right;font-size:12px;color:#888;">${total ? ((v/total)*100).toFixed(1) : 0}%</td>
+      <td style="padding:5px 8px;font-size:10px;">${CAT_LABEL[k]}</td>
+      <td style="padding:5px 8px;text-align:right;font-size:10px;color:#888;">${catCounts[k]} 筆</td>
+      <td style="padding:5px 8px;text-align:right;font-size:10px;font-weight:700;">NT$${formatMoney(v)}</td>
+      <td style="padding:5px 8px;text-align:right;font-size:10px;color:#888;">${total ? ((v/total)*100).toFixed(1) : 0}%</td>
     </tr>
   `).join('');
   const summarySection = Object.keys(catTotals).length ? `
-    <div style="margin-top:22px;">
-      <div style="font-size:12px;font-weight:700;color:#1e1b4b;border-bottom:1.5px solid #1e1b4b;padding-bottom:5px;margin-bottom:0;">項目匯總</div>
+    <div style="margin-top:16px;">
+      <div style="font-size:10px;font-weight:700;color:#1e1b4b;border-bottom:1.5px solid #1e1b4b;padding-bottom:4px;margin-bottom:0;">項目匯總</div>
       <table style="width:100%;border-collapse:collapse;">
         <thead>
           <tr style="background:#f4f6fb;">
-            <th style="padding:7px 10px;text-align:left;font-size:11px;color:#888;font-weight:600;">項目</th>
-            <th style="padding:7px 10px;text-align:right;font-size:11px;color:#888;font-weight:600;">筆數</th>
-            <th style="padding:7px 10px;text-align:right;font-size:11px;color:#888;font-weight:600;">金額</th>
-            <th style="padding:7px 10px;text-align:right;font-size:11px;color:#888;font-weight:600;">佔比</th>
+            <th style="padding:5px 8px;text-align:left;font-size:10px;color:#888;font-weight:600;">項目</th>
+            <th style="padding:5px 8px;text-align:right;font-size:10px;color:#888;font-weight:600;">筆數</th>
+            <th style="padding:5px 8px;text-align:right;font-size:10px;color:#888;font-weight:600;">金額</th>
+            <th style="padding:5px 8px;text-align:right;font-size:10px;color:#888;font-weight:600;">佔比</th>
           </tr>
         </thead>
         <tbody>${summaryRows}</tbody>
@@ -1249,13 +1250,13 @@ function renderPrintPreview() {
   ` : '';
 
   const receiptSection = allImages.length ? `
-    <div style="margin-top:28px; page-break-before:always;">
-      <div style="font-size:13px;font-weight:700;border-bottom:2px solid #1e1b4b;padding-bottom:6px;margin-bottom:14px;">憑證附件</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+    <div style="margin-top:20px; page-break-before:always;">
+      <div style="font-size:11px;font-weight:700;border-bottom:2px solid #1e1b4b;padding-bottom:5px;margin-bottom:12px;">憑證附件</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
         ${allImages.map(img => `
-          <div style="border:1px solid #ddd;border-radius:6px;overflow:hidden;">
-            <img src="${escapeHTML(img.src)}" style="width:100%;display:block;max-height:200px;object-fit:contain;background:#fafafa;">
-            <div style="padding:5px 8px;font-size:10px;color:#777;border-top:1px solid #eee;">${escapeHTML(img.label)}</div>
+          <div style="border:1px solid #ddd;border-radius:5px;overflow:hidden;">
+            <img src="${escapeHTML(img.src)}" style="width:100%;display:block;max-height:160px;object-fit:contain;background:#fafafa;">
+            <div style="padding:4px 6px;font-size:9px;color:#777;border-top:1px solid #eee;">${escapeHTML(img.label)}</div>
           </div>
         `).join('')}
       </div>
@@ -1263,13 +1264,13 @@ function renderPrintPreview() {
   ` : '';
 
   document.getElementById('printArea').innerHTML = `
-    <div style="background:#fff;padding:36px 40px;font-family:'Noto Sans TC',sans-serif;font-size:13px;max-width:860px;margin:0 auto;border:1px solid #dde0e8;border-radius:10px;">
+    <div style="background:#fff;padding:24px 28px;font-family:'Noto Sans TC',sans-serif;font-size:11px;width:720px;min-width:720px;margin:0 auto;border:1px solid #dde0e8;border-radius:10px;">
 
-      <div style="text-align:center;padding-bottom:18px;border-bottom:2px solid #1e1b4b;margin-bottom:22px;">
-        <div style="font-size:20px;font-weight:700;color:#1e1b4b;letter-spacing:.5px;">${escapeHTML(period)}｜費用報帳申請表</div>
+      <div style="text-align:center;padding-bottom:12px;border-bottom:2px solid #1e1b4b;margin-bottom:16px;">
+        <div style="font-size:16px;font-weight:700;color:#1e1b4b;letter-spacing:.5px;">${escapeHTML(period)}｜費用報帳申請表</div>
       </div>
 
-      <div style="display:flex;justify-content:space-between;margin-bottom:22px;font-size:13px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:16px;font-size:11px;">
         <div>申請人：<strong>${escapeHTML(applicant)}</strong></div>
         <div style="color:#666;">申請日期：${escapeHTML(todayStr())}</div>
       </div>
@@ -1277,18 +1278,18 @@ function renderPrintPreview() {
       <table style="width:100%;border-collapse:collapse;">
         <thead>
           <tr style="background:#1e1b4b;color:#fff;">
-            <th style="padding:9px 10px;text-align:center;width:36px;font-size:11px;">序</th>
-            <th style="padding:9px 10px;text-align:left;width:96px;font-size:11px;">日期</th>
-            <th style="padding:9px 10px;text-align:center;width:72px;font-size:11px;">項目</th>
-            <th style="padding:9px 10px;text-align:left;font-size:11px;">備註</th>
-            <th style="padding:9px 10px;text-align:right;width:96px;font-size:11px;">金額</th>
+            <th style="padding:7px 8px;text-align:center;width:28px;font-size:10px;">序</th>
+            <th style="padding:7px 8px;text-align:left;width:80px;font-size:10px;">日期</th>
+            <th style="padding:7px 8px;text-align:center;width:56px;font-size:10px;">項目</th>
+            <th style="padding:7px 8px;text-align:left;font-size:10px;">備註</th>
+            <th style="padding:7px 8px;text-align:right;width:80px;font-size:10px;">金額</th>
           </tr>
         </thead>
         <tbody>
-          ${rows || '<tr><td colspan="5" style="text-align:center;padding:24px;color:#aaa;font-size:13px;">本月尚無費用紀錄</td></tr>'}
+          ${rows || '<tr><td colspan="5" style="text-align:center;padding:18px;color:#aaa;font-size:11px;">本月尚無費用紀錄</td></tr>'}
           <tr style="background:#f4f6fb;font-weight:700;border-top:2px solid #1e1b4b;">
-            <td colspan="4" style="padding:10px;text-align:right;font-size:13px;">合計</td>
-            <td style="padding:10px;text-align:right;font-size:16px;color:#1e1b4b;">NT$${formatMoney(total)}</td>
+            <td colspan="4" style="padding:8px;text-align:right;font-size:11px;">合計</td>
+            <td style="padding:8px;text-align:right;font-size:13px;color:#1e1b4b;">NT$${formatMoney(total)}</td>
           </tr>
         </tbody>
       </table>
