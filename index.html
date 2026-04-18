@@ -1252,7 +1252,7 @@ function renderPrintPreview() {
   const receiptSection = allImages.length ? `
     <div style="margin-top:20px; page-break-before:always;">
       <div style="font-size:11px;font-weight:700;border-bottom:2px solid #1e1b4b;padding-bottom:5px;margin-bottom:12px;">憑證附件</div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+      <div data-receipt-grid="1" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
         ${allImages.map(img => `
           <div style="border:1px solid #ddd;border-radius:5px;overflow:hidden;">
             <div style="position:relative;width:100%;padding-top:75%;background:#fafafa;">
@@ -1363,13 +1363,23 @@ async function exportPDF() {
   source.style.transformOrigin = '';
   document.getElementById('printArea').style.height = '';
 
-  // 預先把所有憑證圖片渲染成 4:3（非同步，不觸碰真實 DOM）
-  const imageMap = new Map();
-  await Promise.all(
-    Array.from(source.querySelectorAll('img[data-receipt]')).map(img =>
-      contain43(img.src).then(r => imageMap.set(img.src, r))
-    )
-  );
+  // 預先把憑證圖片渲染成 4:3 canvas（非同步）
+  const receiptImgEls = Array.from(source.querySelectorAll('img[data-receipt]'));
+  const rendered43    = await Promise.all(receiptImgEls.map(img => contain43(img.src)));
+
+  // 暫時替換真實 DOM 中的圖片讓 html2canvas 能正確擷取，capture 後立即還原
+  const receiptGrid     = source.querySelector('[data-receipt-grid]');
+  let   savedGridHTML   = null;
+  if (receiptGrid && rendered43.length) {
+    savedGridHTML = receiptGrid.innerHTML;
+    Array.from(receiptGrid.querySelectorAll('img[data-receipt]')).forEach((img, i) => {
+      if (!rendered43[i]) return;
+      const newImg = document.createElement('img');
+      newImg.src = rendered43[i];
+      newImg.style.cssText = 'width:100%;height:auto;display:block;';
+      img.parentElement.replaceWith(newImg); // 換掉 padding-top 容器
+    });
+  }
 
   await new Promise(r => setTimeout(r, 60));
 
@@ -1383,19 +1393,7 @@ async function exportPDF() {
       useCORS: true,
       allowTaint: true,
       backgroundColor: '#ffffff',
-      logging: false,
-      // 在 html2canvas 的 clone 裡替換圖片，完全不動真實 DOM
-      onclone: (_doc, clonedEl) => {
-        clonedEl.querySelectorAll('img[data-receipt]').forEach(img => {
-          const rendered = imageMap.get(img.src);
-          if (!rendered) return;
-          const wrap = img.parentElement;
-          const newImg = _doc.createElement('img');
-          newImg.src = rendered;
-          newImg.style.cssText = 'width:100%;height:auto;display:block;';
-          wrap.replaceWith(newImg);
-        });
-      }
+      logging: false
     });
 
     const { jsPDF } = window.jspdf;
@@ -1454,6 +1452,8 @@ async function exportPDF() {
     showToast('產生 PDF 失敗', 'warn');
     console.error(e);
   } finally {
+    // 還原憑證附件的預覽 HTML
+    if (receiptGrid && savedGridHTML !== null) receiptGrid.innerHTML = savedGridHTML;
     btn.disabled = false;
     btn.textContent = '📄 匯出 PDF';
     scalePreviewToFit();
