@@ -1256,7 +1256,7 @@ function renderPrintPreview() {
         ${allImages.map(img => `
           <div style="border:1px solid #ddd;border-radius:5px;overflow:hidden;">
             <div style="position:relative;width:100%;padding-top:75%;background:#fafafa;">
-              <img src="${escapeHTML(img.src)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;">
+              <img data-receipt="1" src="${escapeHTML(img.src)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;">
             </div>
             <div style="padding:4px 6px;font-size:9px;color:#777;border-top:1px solid #eee;">${escapeHTML(img.label)}</div>
           </div>
@@ -1320,6 +1320,34 @@ function scalePreviewToFit() {
   }
 }
 
+// html2canvas 不支援 object-fit，把每張憑證預先畫成 4:3 canvas 再替換
+function preRenderReceipts43(source) {
+  const imgs = Array.from(source.querySelectorAll('img[data-receipt]'));
+  return Promise.all(imgs.map(img => new Promise(resolve => {
+    const W = 480, H = 360; // 4:3
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fafafa';
+    ctx.fillRect(0, 0, W, H);
+    const tmp = new Image();
+    tmp.onload = () => {
+      const scale = Math.min(W / tmp.width, H / tmp.height);
+      const dw = tmp.width * scale, dh = tmp.height * scale;
+      ctx.drawImage(tmp, (W - dw) / 2, (H - dh) / 2, dw, dh);
+      // 替換掉 padding-top 容器，改成普通的 img
+      const wrap = img.parentElement; // position:relative div
+      const newImg = document.createElement('img');
+      newImg.src = c.toDataURL('image/jpeg', 0.9);
+      newImg.style.cssText = 'width:100%;height:auto;display:block;';
+      wrap.replaceWith(newImg);
+      resolve();
+    };
+    tmp.onerror = resolve;
+    tmp.src = img.src;
+  })));
+}
+
 async function exportPDF() {
   renderPrintPreview();
 
@@ -1341,6 +1369,10 @@ async function exportPDF() {
   source.style.transform       = '';
   source.style.transformOrigin = '';
   document.getElementById('printArea').style.height = '';
+
+  // html2canvas 不支援 object-fit，預先把憑證圖片渲染成 4:3 canvas
+  await preRenderReceipts43(source);
+
   await new Promise(r => setTimeout(r, 60));
 
   const btn = document.getElementById('exportBtn');
