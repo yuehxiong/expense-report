@@ -1252,10 +1252,12 @@ function renderPrintPreview() {
   const receiptSection = allImages.length ? `
     <div style="margin-top:20px; page-break-before:always;">
       <div style="font-size:11px;font-weight:700;border-bottom:2px solid #1e1b4b;padding-bottom:5px;margin-bottom:12px;">憑證附件</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
         ${allImages.map(img => `
           <div style="border:1px solid #ddd;border-radius:5px;overflow:hidden;">
-            <img src="${escapeHTML(img.src)}" style="width:100%;height:180px;display:block;object-fit:contain;background:#fafafa;">
+            <div style="position:relative;width:100%;padding-top:75%;background:#fafafa;">
+              <img src="${escapeHTML(img.src)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;">
+            </div>
             <div style="padding:4px 6px;font-size:9px;color:#777;border-top:1px solid #eee;">${escapeHTML(img.label)}</div>
           </div>
         `).join('')}
@@ -1298,6 +1300,24 @@ function renderPrintPreview() {
       ${receiptSection}
     </div>
   `;
+  scalePreviewToFit();
+}
+
+function scalePreviewToFit() {
+  const area = document.getElementById('printArea');
+  const el   = area?.querySelector(':scope > div');
+  if (!el) return;
+  const avail = area.clientWidth;
+  if (avail > 0 && avail < 720) {
+    const s = avail / 720;
+    el.style.transform       = `scale(${s})`;
+    el.style.transformOrigin = 'top left';
+    area.style.height        = Math.ceil(el.scrollHeight * s) + 'px';
+  } else {
+    el.style.transform       = '';
+    el.style.transformOrigin = '';
+    area.style.height        = '';
+  }
 }
 
 async function exportPDF() {
@@ -1316,6 +1336,12 @@ async function exportPDF() {
 
   const source = document.querySelector('#printArea > div');
   if (!source) { showToast('請先確認有費用資料', 'warn'); if (iosWin) iosWin.close(); return; }
+
+  // 暫時移除縮放讓 html2canvas 以原始 720px 寬度擷取
+  source.style.transform       = '';
+  source.style.transformOrigin = '';
+  document.getElementById('printArea').style.height = '';
+  await new Promise(r => setTimeout(r, 60));
 
   const btn = document.getElementById('exportBtn');
   btn.disabled = true;
@@ -1388,6 +1414,7 @@ async function exportPDF() {
   } finally {
     btn.disabled = false;
     btn.textContent = '📄 匯出 PDF';
+    scalePreviewToFit();
   }
 }
 
