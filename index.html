@@ -1320,11 +1320,10 @@ function scalePreviewToFit() {
   }
 }
 
-// html2canvas 不支援 object-fit，把每張憑證預先畫成 4:3 canvas 再替換
-function preRenderReceipts43(source) {
-  const imgs = Array.from(source.querySelectorAll('img[data-receipt]'));
-  return Promise.all(imgs.map(img => new Promise(resolve => {
-    const W = 480, H = 360; // 4:3
+// 把單張圖片畫成 4:3 canvas（contain 模式），傳回 data URL
+function contain43(src) {
+  return new Promise(resolve => {
+    const W = 480, H = 360;
     const c = document.createElement('canvas');
     c.width = W; c.height = H;
     const ctx = c.getContext('2d');
@@ -1335,17 +1334,11 @@ function preRenderReceipts43(source) {
       const scale = Math.min(W / tmp.width, H / tmp.height);
       const dw = tmp.width * scale, dh = tmp.height * scale;
       ctx.drawImage(tmp, (W - dw) / 2, (H - dh) / 2, dw, dh);
-      // 替換掉 padding-top 容器，改成普通的 img
-      const wrap = img.parentElement; // position:relative div
-      const newImg = document.createElement('img');
-      newImg.src = c.toDataURL('image/jpeg', 0.9);
-      newImg.style.cssText = 'width:100%;height:auto;display:block;';
-      wrap.replaceWith(newImg);
-      resolve();
+      resolve(c.toDataURL('image/jpeg', 0.9));
     };
-    tmp.onerror = resolve;
-    tmp.src = img.src;
-  })));
+    tmp.onerror = () => resolve(src);
+    tmp.src = src;
+  });
 }
 
 async function exportPDF() {
@@ -1370,8 +1363,13 @@ async function exportPDF() {
   source.style.transformOrigin = '';
   document.getElementById('printArea').style.height = '';
 
-  // html2canvas 不支援 object-fit，預先把憑證圖片渲染成 4:3 canvas
-  await preRenderReceipts43(source);
+  // 預先把所有憑證圖片渲染成 4:3（非同步，不觸碰真實 DOM）
+  const imageMap = new Map();
+  await Promise.all(
+    Array.from(source.querySelectorAll('img[data-receipt]')).map(img =>
+      contain43(img.src).then(r => imageMap.set(img.src, r))
+    )
+  );
 
   await new Promise(r => setTimeout(r, 60));
 
@@ -1385,7 +1383,19 @@ async function exportPDF() {
       useCORS: true,
       allowTaint: true,
       backgroundColor: '#ffffff',
-      logging: false
+      logging: false,
+      // 在 html2canvas 的 clone 裡替換圖片，完全不動真實 DOM
+      onclone: (_doc, clonedEl) => {
+        clonedEl.querySelectorAll('img[data-receipt]').forEach(img => {
+          const rendered = imageMap.get(img.src);
+          if (!rendered) return;
+          const wrap = img.parentElement;
+          const newImg = _doc.createElement('img');
+          newImg.src = rendered;
+          newImg.style.cssText = 'width:100%;height:auto;display:block;';
+          wrap.replaceWith(newImg);
+        });
+      }
     });
 
     const { jsPDF } = window.jspdf;
